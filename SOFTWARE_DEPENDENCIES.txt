@@ -1,29 +1,125 @@
 ME-fMRI Pipeline Software Dependencies
 =====================================
 
+Purpose
+-------
+
+This file records the software stack currently expected and tested by this
+repository. The previous version of this document listed tool names only; this
+version adds concrete version information so users can reproduce a working
+environment on other machines.
+
+Version policy
+--------------
+
+- "Pinned/tested" means the version was found directly in this repo, in the
+  configured `mefmri_env` conda environment, in the runtime container files, or
+  from the current development machine.
+- "Not pinned by repo" means the pipeline can call the software, but this repo
+  does not currently enforce an exact version for it.
+- If you want the closest match to the current tested setup, prefer the
+  container image in `docker/Dockerfile.runtime` plus the tedana environment
+  listed below.
+
+
+1) Repository / Bundled Software Versions
+-----------------------------------------
+
 Pipeline root:
-- This repository root (resolved at runtime as `MEDIR` by `bin/mefmri_pipeline.sh`).
+- This repository root (resolved at runtime as `MEDIR` by `bin/mefmri_pipeline.sh`)
 
 Main entrypoint:
 - `bin/mefmri_pipeline.sh`
 
+Container wrapper (optional):
+- `bin/mefmri_pipeline_container.sh`
 
-1) Required Core Software (default full pipeline)
--------------------------------------------------
-
-A. Bash + required shell utilities
-- `bash`
-- `awk`
-- `sed`
-
-B. HCP Pipelines
-- Local copy is bundled in this repo at:
-  - `HCPpipelines-master/`
+Bundled HCP Pipelines snapshot:
+- Path: `HCPpipelines-master/`
+- Git commit bundled in this repo: `7ae8329`
 - Environment setup script expected by wrapper:
   - `HCPpipelines-master/Examples/Scripts/SetUpHCPPipeline.sh`
 
-C. FSL (required across functional pipeline)
-Required commands used by modules:
+Bundled PFM-NSI package:
+- Path: `lib/pfm-nsi/`
+- Package version: `0.1.0`
+- Python requirement from `lib/pfm-nsi/pyproject.toml`: `>=3.9`
+- Python deps declared there:
+  - `numpy`
+  - `scipy`
+  - `nibabel`
+- Optional plotting extra:
+  - `matplotlib`
+
+
+2) Default Full-Pipeline Tested Stack
+-------------------------------------
+
+A. Shell / command-line tools
+- `bash==5.0.17`
+- `gawk==5.0.1`
+- `sed==4.7`
+- `parallel==20161222`
+
+B. Core neuroimaging stack
+- FSL: `6.0.4:ddd0a010`
+- FreeSurfer: `6.0.0` (`freesurfer-Linux-centos6_x86_64-stable-pub-v6.0.0-2beb96c`)
+- Connectome Workbench: `2.0.0`
+  - observed commit: `a4824b22b46b2d5afa3e543a483f73faea27bcf5`
+
+C. Python / tedana stack for default MEICA stage
+Recommended tested environment:
+- Conda env name in config: `mefmri_env`
+- Python: `3.10.19`
+- `tedana==26.0.0`
+- `ica_reclassify` present in the same env
+- `numpy==1.26.4`
+- `nibabel==5.3.3`
+- `pandas==2.3.3`
+- `scipy==1.15.3`
+- `matplotlib==3.10.8`
+
+Notes:
+- `README.md` expects `mefmri_env` to host tedana `0.26.x`; the current tested
+  env resolves to `tedana==26.0.0`.
+- The default config uses:
+  - `TEDANA_ENV="mefmri_env"`
+  - `TEDANA_ACTIVATE_MODE="conda_activate"`
+  - `TEDANA_COMPAT_MODE="modern"`
+- A separate host-global `tedana` executable exists on the development machine,
+  but it points to an older Python-based install and should not be treated as
+  the reference environment for this pipeline.
+
+D. Runtime container base
+- `docker/Dockerfile.runtime` base image:
+  - `nipreps/fmriprep:24.1.1`
+
+Container notes:
+- The runtime Dockerfile installs these additional apt packages:
+  - `bc`
+  - `gawk`
+  - `parallel`
+  - `python3-pip`
+  - `rsync`
+- The runtime Dockerfile installs these Python packages into the image:
+  - `tedana`
+  - `matplotlib`
+  - `nibabel`
+  - `numpy`
+  - `pandas`
+  - `scipy`
+- Those image-installed Python packages are currently not version-pinned in the
+  Dockerfile; if you want byte-for-byte reproducibility, pin them there too.
+
+
+3) Required Commands by Pipeline Area
+-------------------------------------
+
+A. Full default pipeline
+Required commands used by the standard full pipeline:
+- `bash`
+- `awk`
+- `sed`
 - `fslmaths`
 - `fslmerge`
 - `flirt`
@@ -39,122 +135,168 @@ Required commands used by modules:
 - `invwarp`
 - `slicetimer`
 - `bet`
-
-D. FreeSurfer (required in anat/coreg/fieldmaps)
-Required commands:
 - `mri_binarize`
 - `mri_convert`
 - `mri_surf2surf`
 - `bbregister`
 - `tkregister2`
-
-Notes:
-- `bin/mefmri_pipeline.sh` auto-creates a `tkregister` compatibility shim when `tkregister` is missing but `tkregister2` is present.
-
-E. Connectome Workbench (required)
-Required command:
 - `wb_command`
-
-F. GNU Parallel (required)
-Required command:
 - `parallel`
-
-G. Python 3 (required)
-Required command:
 - `python3`
+- `tedana`
+- `ica_reclassify`
 
-Required Python packages used by internal modules:
+Compatibility note:
+- `bin/mefmri_pipeline.sh` auto-creates a `tkregister` compatibility shim when
+  `tkregister` is missing but `tkregister2` is present.
+
+B. Python packages used by internal modules
 - `numpy`
 - `nibabel`
 - `pandas`
 - `scipy`
 - `matplotlib`
 
-H. tedana stack (required for default MEICA stage)
-Required commands:
-- `tedana`
-- `ica_reclassify`
-
-Conda requirement:
-- `conda` is required when `TEDANA_ACTIVATE_MODE` is `conda_activate` or `conda_run`.
+C. Conda requirement
+- `conda` is required when `TEDANA_ACTIVATE_MODE` is `conda_activate` or
+  `conda_run`.
 - If `TEDANA_ACTIVATE_MODE=direct`, `conda` is not required.
 
 
-2) Required by Specific Modules / Modes
----------------------------------------
+4) Module-Specific Dependencies
+-------------------------------
 
 Anatomical modules:
-- `modules/mefmri_anat_hcp.sh`:
-  - HCP Pipelines stack
-  - FreeSurfer + FSL + Workbench via HCP scripts
+- `modules/mefmri_anat_hcp.sh`
+  - bundled HCP Pipelines snapshot `7ae8329`
+  - FreeSurfer `6.0.0`
+  - FSL `6.0.4:ddd0a010`
+  - Workbench `2.0.0`
 
-- `modules/mefmri_anat_charm.sh`:
-  - SimNIBS CHARM binary (set `CHARM_BIN` in config if not on PATH)
+- `modules/mefmri_anat_charm.sh`
+  - SimNIBS CHARM binary
   - FSL (`fslmaths`)
   - Python (`python3`)
+  - Version status: not pinned by repo
+  - Local development config currently points to:
+    - `/home/charleslynch/SimNIBS-4.5/bin/charm`
+  - Treat `SimNIBS 4.5` as the current local tested reference, not a hard repo
+    requirement, unless you also standardize it in your install docs/config.
 
 Functional modules:
-- `modules/mefmri_func_fieldmaps.sh`:
-  - FSL, FreeSurfer, Python, GNU Parallel
-  - Workbench only when `USE_WB_SMOOTHING=1`
+- `modules/mefmri_func_fieldmaps.sh`
+  - FSL `6.0.4:ddd0a010`
+  - FreeSurfer `6.0.0`
+  - Python stack from `mefmri_env`
+  - GNU Parallel `20161222`
+  - Workbench `2.0.0` only when `USE_WB_SMOOTHING=1`
 
-- `modules/mefmri_func_coreg.sh`:
-  - FSL, FreeSurfer, Python, GNU Parallel
+- `modules/mefmri_func_coreg.sh`
+  - FSL `6.0.4:ddd0a010`
+  - FreeSurfer `6.0.0`
+  - Python stack from `mefmri_env`
+  - GNU Parallel `20161222`
   - ANTs only if `APPLY_N4_BIAS=1`
 
-- `modules/mefmri_func_headmotion.sh`:
-  - FSL, GNU Parallel
+- `modules/mefmri_func_headmotion.sh`
+  - FSL `6.0.4:ddd0a010`
+  - GNU Parallel `20161222`
   - ANTs only if `APPLY_N4_BIAS=1`
 
-- `modules/mefmri_func_meica.sh`:
-  - tedana + ica_reclassify
-  - conda (if `TEDANA_ACTIVATE_MODE` is `conda_activate` or `conda_run`)
-  - FSL, Workbench (if `MEICA_QC_CIFTI_ENABLE=1`), Python, GNU Parallel
+- `modules/mefmri_func_meica.sh`
+  - `tedana==26.0.0`
+  - `ica_reclassify` from the same `mefmri_env`
+  - `conda` when `TEDANA_ACTIVATE_MODE` is `conda_activate` or `conda_run`
+  - FSL `6.0.4:ddd0a010`
+  - Workbench `2.0.0` if `MEICA_QC_CIFTI_ENABLE=1`
+  - Python stack from `mefmri_env`
+  - GNU Parallel `20161222`
 
-- `modules/mefmri_func_mgtr.sh`:
-  - Python (`python3`) with `numpy` + `nibabel`
+- `modules/mefmri_func_mgtr.sh`
+  - Python with:
+    - `numpy==1.26.4`
+    - `nibabel==5.3.3`
 
-- `modules/mefmri_func_vol2surf.sh`:
-  - FSL + Workbench
+- `modules/mefmri_func_vol2surf.sh`
+  - FSL `6.0.4:ddd0a010`
+  - Workbench `2.0.0`
 
-- `modules/mefmri_func_pfm.sh`:
-  - Python (`python3`) + Workbench
-  - For `PFM_STRATEGY=infomap`: `infomap` binary (or MATLAB fallback, see optional section)
+- `modules/mefmri_func_nsi.sh`
+  - bundled `pfm-nsi==0.1.0`
+  - Python `>=3.9` for bundled package compatibility
+  - minimum declared bundled-package deps:
+    - `numpy`
+    - `scipy`
+    - `nibabel`
+  - plotting/report support may also need:
+    - `matplotlib`
 
-3) Optional Dependencies
-------------------------
+- `modules/mefmri_func_pfm.sh`
+  - Python stack from `mefmri_env`
+  - Workbench `2.0.0`
+  - For `PFM_STRATEGY=infomap`:
+    - `infomap` binary, or MATLAB fallback
 
-A. ANTs (conditional)
+Container execution:
+- `bin/mefmri_pipeline_container.sh` requires one of:
+  - `docker`
+  - `apptainer`
+- Apptainer definition:
+  - `containers/mefmri_pipeline.def`
+  - currently bootstraps from `mefmri-pipeline:latest`
+
+
+5) Optional / Conditional Dependencies
+--------------------------------------
+
+A. ANTs
 Only needed if:
 - `APPLY_N4_BIAS=1`
 
 Required command:
 - `N4BiasFieldCorrection`
 
-B. External PFM NSI CLI (optional)
+Version status:
+- not pinned by repo
+
+B. External PFM-NSI CLI
 Only needed if:
 - `NSI_USE_EXTERNAL_CLI=1`
 
 Config requirement:
-- set `NSI_EXTERNAL_ROOT` to your local NSI repository path (default bundled location: `lib/pfm-nsi`)
+- set `NSI_EXTERNAL_ROOT` to your local NSI repository path
+- bundled default location: `lib/pfm-nsi`
 
-C. InfoMap binary (required when `PFM_STRATEGY=infomap` and `PFM_INFOMAP_USE_MATLAB=0`)
+Bundled version reference:
+- `pfm-nsi==0.1.0`
+
+C. Infomap
+Only needed if:
+- `PFM_STRATEGY=infomap`
+- and `PFM_INFOMAP_USE_MATLAB=0`
+
 Required command:
 - `infomap`
 
 If infomap is not on PATH, set:
 - `PFM_INFOMAP_BINARY=/full/path/to/infomap`
 
-D. MATLAB (optional infomap fallback only)
+Version status:
+- not pinned by repo
+
+D. MATLAB
 Only needed if:
 - `PFM_STRATEGY=infomap`
 - and `PFM_INFOMAP_USE_MATLAB=1`
 
+Version status:
+- not pinned by repo
 
-4) Quick Binary Checks (manual)
--------------------------------
 
-Core/default pipeline check:
+6) Manual Version / Binary Checks
+---------------------------------
+
+Core command presence check:
 
 for c in \
   bash awk sed \
@@ -165,10 +307,47 @@ for c in \
   command -v "$c" >/dev/null 2>&1 || echo "MISSING: $c"
 done
 
-If using conda-managed tedana execution (`TEDANA_ACTIVATE_MODE=conda_*`):
+Recommended tedana env check:
+
+conda run -n mefmri_env python -c "import sys, tedana, numpy, nibabel, pandas, scipy, matplotlib; \
+print('python==' + sys.version.split()[0]); \
+print('tedana==' + tedana.__version__); \
+print('numpy==' + numpy.__version__); \
+print('nibabel==' + nibabel.__version__); \
+print('pandas==' + pandas.__version__); \
+print('scipy==' + scipy.__version__); \
+print('matplotlib==' + matplotlib.__version__)"
+
+Common version probes:
+
+bash --version | head -n 1
+awk -W version | head -n 1
+sed --version | head -n 1
+cat "${FSLDIR}/etc/fslversion"
+recon-all -version
+wb_command -version | head -n 6
+git -C HCPpipelines-master rev-parse --short HEAD
+
+Conditional checks:
 
 command -v conda >/dev/null 2>&1 || echo "MISSING: conda"
-
-If using ANTs bias correction (`APPLY_N4_BIAS=1`):
-
 command -v N4BiasFieldCorrection >/dev/null 2>&1 || echo "MISSING: N4BiasFieldCorrection"
+command -v infomap >/dev/null 2>&1 || echo "MISSING: infomap"
+
+
+7) Remaining Gaps
+-----------------
+
+These dependencies are still not fully version-pinned by the repo itself:
+- ANTs
+- SimNIBS / CHARM
+- Infomap
+- MATLAB
+- Python packages installed in `docker/Dockerfile.runtime`
+
+If you want installs on other machines to be substantially easier, the next
+practical step is:
+- create an explicit environment file for `mefmri_env` (for example
+  `environment.yml` or a version-pinned `requirements.txt`)
+- pin the pip installs in `docker/Dockerfile.runtime`
+- optionally document tested ANTs / SimNIBS / Infomap versions in `README.md`
