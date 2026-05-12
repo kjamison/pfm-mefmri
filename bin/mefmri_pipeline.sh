@@ -54,6 +54,8 @@ fi
 : "${FUNC_COREG_MODULE:=$MEDIR/modules/mefmri_func_coreg.sh}"
 : "${FUNC_HEADMOTION_MODULE:=$MEDIR/modules/mefmri_func_headmotion.sh}"
 : "${FUNC_MEICA_MODULE:=$MEDIR/modules/mefmri_func_meica.sh}"
+: "${FUNC_SINGLEECHO_MODULE:=$MEDIR/modules/mefmri_func_singleecho.sh}"
+: "${FUNC_ACOMPCOR_MODULE:=$MEDIR/modules/mefmri_func_acompcor.sh}"
 : "${FUNC_MGTR_MODULE:=$MEDIR/modules/mefmri_func_mgtr.sh}"
 : "${FUNC_VOL2SURF_MODULE:=$MEDIR/modules/mefmri_func_vol2surf.sh}"
 : "${FUNC_CONCAT_MODULE:=$MEDIR/modules/mefmri_func_concat.sh}"
@@ -68,10 +70,15 @@ fi
 : "${MEPCA:=kundu}"
 : "${MaxIterations:=500}"
 : "${MaxRestarts:=5}"
+: "${PROCESSING_MODE:=auto}" # auto|multi_echo|single_echo
+: "${MULTI_ECHO_DENOISE_METHOD:=meica}"
+: "${SINGLE_ECHO_DENOISE_METHOD:=acompcor}"
+: "${SINGLE_ECHO_ECHO_INDEX:=1}"
 : "${CONCAT_ENABLE:=1}" # 0|1
 : "${NSI_ENABLE:=1}" # 0|1
 : "${PFM_ENABLE:=1}" # 0|1
 : "${RUN_CONFIG_SNAPSHOT:=1}" # 0|1
+: "${FUNC_NOFIELDMAP_MODE:=0}" # 0|1
 
 # Functional naming/outputs.
 : "${VOL2SURF_INPUTS:=}"
@@ -145,6 +152,58 @@ should_run_stage() {
   [ "$stage_idx" -ge "$start_idx" ]
 }
 
+detect_run_echo_count() {
+  local run_dir="$1"
+  local te_file
+  for te_file in "$run_dir/TE.txt" "$run_dir/te.txt"; do
+    if [[ -f "$te_file" ]]; then
+      awk 'NF{print NF; exit}' "$te_file"
+      return 0
+    fi
+  done
+
+  local count=0
+  shopt -s nullglob
+  local matches=( "$run_dir"/"${FUNC_FILE_PREFIX}"*_E*.nii.gz )
+  shopt -u nullglob
+  local f base
+  for f in "${matches[@]}"; do
+    base="$(basename "$f")"
+    if [[ "$base" =~ ^${FUNC_FILE_PREFIX}.*_E[0-9]+(_acpc)?\.nii\.gz$ ]]; then
+      count=$((count + 1))
+    fi
+  done
+  if [[ "$count" -gt 0 ]]; then
+    echo "$count"
+    return 0
+  fi
+
+  echo ""
+}
+
+detect_dataset_min_echoes() {
+  local -a roots=(
+    "$SubjectDir/func/$FUNC_DIRNAME"
+    "$SubjectDir/func/unprocessed/$FUNC_DIRNAME"
+  )
+  local root run_dir count min_count=""
+  for root in "${roots[@]}"; do
+    [[ -d "$root" ]] || continue
+    while IFS= read -r run_dir; do
+      count="$(detect_run_echo_count "$run_dir")"
+      [[ -n "$count" ]] || continue
+      if [[ -z "$min_count" || "$count" -lt "$min_count" ]]; then
+        min_count="$count"
+      fi
+    done < <(find "$root" -mindepth 2 -maxdepth 2 -type d -name 'run_*' | sort -V)
+  done
+  if [[ -z "$min_count" ]]; then
+    echo "0"
+  else
+    echo "$min_count"
+  fi
+}
+
 resolve_freesurfer_license() {
   if [[ -n "${FS_LICENSE:-}" && -f "${FS_LICENSE}" ]]; then
     echo "${FS_LICENSE}"
@@ -188,6 +247,85 @@ case "${PIPELINE_QUIET_MODULE_OUTPUT}" in
     ;;
 esac
 
+case "${PROCESSING_MODE}" in
+  auto|multi_echo|single_echo) ;;
+  *)
+    echo "ERROR: invalid PROCESSING_MODE='${PROCESSING_MODE}' (expected auto, multi_echo, or single_echo)"
+    exit 2
+    ;;
+esac
+
+case "${MULTI_ECHO_DENOISE_METHOD}" in
+  meica|acompcor) ;;
+  *)
+    echo "ERROR: invalid MULTI_ECHO_DENOISE_METHOD='${MULTI_ECHO_DENOISE_METHOD}' (expected meica or acompcor)"
+    exit 2
+    ;;
+esac
+
+case "${SINGLE_ECHO_DENOISE_METHOD}" in
+  acompcor) ;;
+  *)
+    echo "ERROR: invalid SINGLE_ECHO_DENOISE_METHOD='${SINGLE_ECHO_DENOISE_METHOD}' (expected acompcor)"
+    exit 2
+    ;;
+esac
+
+if ! [[ "${SINGLE_ECHO_ECHO_INDEX}" =~ ^[0-9]+$ ]] || [[ "${SINGLE_ECHO_ECHO_INDEX}" -lt 1 ]]; then
+  echo "ERROR: SINGLE_ECHO_ECHO_INDEX must be an integer >= 1 (got '${SINGLE_ECHO_ECHO_INDEX}')"
+  exit 2
+fi
+
+PIPELINE_MIN_ECHOES="$(detect_dataset_min_echoes)"
+PIPELINE_EFFECTIVE_DENOISE_MODE="multi_echo"
+PIPELINE_DENOISE_FALLBACK_REASON=""
+if [[ "${PROCESSING_MODE}" == "single_echo" ]]; then
+  PIPELINE_EFFECTIVE_DENOISE_MODE="single_echo"
+  PIPELINE_DENOISE_FALLBACK_REASON="explicit_single_echo"
+elif [[ "${PIPELINE_MIN_ECHOES}" -lt 3 ]]; then
+  PIPELINE_EFFECTIVE_DENOISE_MODE="single_echo"
+  PIPELINE_DENOISE_FALLBACK_REASON="echo_count_lt_3"
+fi
+
+PIPELINE_SOURCE_FUNC_TAG="OCME"
+PIPELINE_EFFECTIVE_DENOISE_METHOD="${MULTI_ECHO_DENOISE_METHOD}"
+PIPELINE_DENOISE_OUTPUT_TAG="OCME+MEICA"
+if [[ "${PIPELINE_EFFECTIVE_DENOISE_MODE}" == "single_echo" ]]; then
+  PIPELINE_SOURCE_FUNC_TAG="E${SINGLE_ECHO_ECHO_INDEX}"
+  PIPELINE_EFFECTIVE_DENOISE_METHOD="${SINGLE_ECHO_DENOISE_METHOD}"
+  PIPELINE_DENOISE_OUTPUT_TAG="${PIPELINE_SOURCE_FUNC_TAG}+aCompCor"
+else
+  case "${MULTI_ECHO_DENOISE_METHOD}" in
+    meica)
+      PIPELINE_DENOISE_OUTPUT_TAG="OCME+MEICA"
+      ;;
+    acompcor)
+      PIPELINE_DENOISE_OUTPUT_TAG="OCME+aCompCor"
+      ;;
+  esac
+fi
+PIPELINE_MGTR_OUTPUT_TAG_DEFAULT="${PIPELINE_DENOISE_OUTPUT_TAG}+MGTR"
+: "${MGTR_INPUT_TAG:=$PIPELINE_DENOISE_OUTPUT_TAG}"
+: "${MGTR_OUTPUT_TAG:=$PIPELINE_MGTR_OUTPUT_TAG_DEFAULT}"
+if [[ -z "${VOL2SURF_INPUTS}" ]]; then
+  VOL2SURF_INPUTS="${PIPELINE_SOURCE_FUNC_TAG},${PIPELINE_DENOISE_OUTPUT_TAG},${MGTR_OUTPUT_TAG}"
+fi
+: "${CONCAT_INPUT_TAG:=$MGTR_OUTPUT_TAG}"
+: "${NSI_INPUT_TAG:=$CONCAT_INPUT_TAG}"
+: "${PFM_INPUT_TAG:=$CONCAT_INPUT_TAG}"
+
+export PIPELINE_MIN_ECHOES
+export PIPELINE_EFFECTIVE_DENOISE_MODE
+export PIPELINE_DENOISE_FALLBACK_REASON
+export PIPELINE_DENOISE_OUTPUT_TAG
+export PIPELINE_SOURCE_FUNC_TAG
+export PIPELINE_EFFECTIVE_DENOISE_METHOD
+export MGTR_INPUT_TAG
+export MGTR_OUTPUT_TAG
+export CONCAT_INPUT_TAG
+export NSI_INPUT_TAG
+export PFM_INPUT_TAG
+
 echo
 echo "ME-fMRI Pipeline"
 echo "MEDIR: ${MEDIR}"
@@ -199,6 +337,20 @@ echo "START_FROM_MODULE: ${START_FROM_MODULE}"
 echo "STOP_AFTER_MODULE: ${STOP_AFTER_MODULE:-<none>}"
 echo "AtlasSpace: ${AtlasSpace}"
 echo "Functional naming: func/${FUNC_DIRNAME}, prefix ${FUNC_FILE_PREFIX}_*"
+echo "FUNC_NOFIELDMAP_MODE: ${FUNC_NOFIELDMAP_MODE}"
+echo "Processing mode: requested=${PROCESSING_MODE} effective=${PIPELINE_EFFECTIVE_DENOISE_MODE} min_echoes=${PIPELINE_MIN_ECHOES}"
+if [[ "${PIPELINE_EFFECTIVE_DENOISE_MODE}" == "single_echo" ]]; then
+  echo "Single-echo method: ${SINGLE_ECHO_DENOISE_METHOD} (source echo E${SINGLE_ECHO_ECHO_INDEX})"
+  if [[ -n "${PIPELINE_DENOISE_FALLBACK_REASON}" ]]; then
+    echo "Single-echo selection reason: ${PIPELINE_DENOISE_FALLBACK_REASON}"
+  fi
+else
+  echo "Multi-echo method: ${MULTI_ECHO_DENOISE_METHOD}"
+fi
+echo "Source tag: ${PIPELINE_SOURCE_FUNC_TAG}"
+echo "Denoise output tag: ${PIPELINE_DENOISE_OUTPUT_TAG}"
+echo "MGTR input/output tags: ${MGTR_INPUT_TAG} -> ${MGTR_OUTPUT_TAG}"
+echo "Concat/NSI/PFM input tag: ${CONCAT_INPUT_TAG}"
 echo "Threads (anat_hcp,fieldmaps,coreg,headmotion,meica): ${THREADS_ANAT_HCP},${THREADS_FIELDMAPS},${THREADS_COREG},${THREADS_HEADMOTION},${THREADS_MEICA}"
 echo "MEICA defaults: tedana_env=${TEDANA_ENV:-unset}, compat=${TEDANA_COMPAT_MODE:-unset}, pca=${MEPCA}"
 echo "Masking defaults: CHARM_BRAIN_MASK_MODE=${CHARM_BRAIN_MASK_MODE:-unset}, VOL2SURF_USE_CORTICAL_RIBBON_MASK=${VOL2SURF_USE_CORTICAL_RIBBON_MASK:-unset}"
@@ -281,6 +433,20 @@ if [[ "${RUN_CONFIG_SNAPSHOT}" == "1" ]]; then
     echo "start_from_module=$START_FROM_MODULE"
     echo "stop_after_module=${STOP_AFTER_MODULE:-}"
     echo "atlas_space=$AtlasSpace"
+    echo "processing_mode_requested=${PROCESSING_MODE}"
+    echo "processing_mode_effective=${PIPELINE_EFFECTIVE_DENOISE_MODE}"
+    echo "processing_mode_reason=${PIPELINE_DENOISE_FALLBACK_REASON}"
+    echo "min_echoes=${PIPELINE_MIN_ECHOES}"
+    echo "single_echo_method=${SINGLE_ECHO_DENOISE_METHOD}"
+    echo "multi_echo_method=${MULTI_ECHO_DENOISE_METHOD}"
+    echo "single_echo_echo_index=${SINGLE_ECHO_ECHO_INDEX}"
+    echo "pipeline_source_func_tag=${PIPELINE_SOURCE_FUNC_TAG}"
+    echo "pipeline_denoise_output_tag=${PIPELINE_DENOISE_OUTPUT_TAG}"
+    echo "mgtr_input_tag=${MGTR_INPUT_TAG}"
+    echo "mgtr_output_tag=${MGTR_OUTPUT_TAG}"
+    echo "concat_input_tag=${CONCAT_INPUT_TAG:-}"
+    echo "nsi_input_tag=${NSI_INPUT_TAG:-}"
+    echo "pfm_input_tag=${PFM_INPUT_TAG:-}"
     echo "func_dirname=$FUNC_DIRNAME"
     echo "func_file_prefix=$FUNC_FILE_PREFIX"
     echo "charm_brain_mask_mode=${CHARM_BRAIN_MASK_MODE:-}"
@@ -374,9 +540,22 @@ else
 fi
 
 print_section "Running ME-ICA denoising"
-[ -f "$FUNC_MEICA_MODULE" ] || { echo "ERROR: missing module: $FUNC_MEICA_MODULE"; exit 2; }
 if should_run_stage "meica"; then
-  run_module "meica" bash "$FUNC_MEICA_MODULE" "$Subject" "$StudyFolder" "$THREADS_MEICA" "$MEPCA" "$MaxIterations" "$MaxRestarts" "$START_SESSION" "$MEDIR"
+  if [[ "${PIPELINE_EFFECTIVE_DENOISE_MODE}" == "single_echo" ]]; then
+    [ -f "$FUNC_SINGLEECHO_MODULE" ] || { echo "ERROR: missing module: $FUNC_SINGLEECHO_MODULE"; exit 2; }
+    run_module "meica" bash "$FUNC_SINGLEECHO_MODULE" "$Subject" "$StudyFolder" "$THREADS_MEICA" "$START_SESSION" "$MEDIR"
+  else
+    if [[ "${MULTI_ECHO_DENOISE_METHOD}" == "acompcor" ]]; then
+      [ -f "$FUNC_MEICA_MODULE" ] || { echo "ERROR: missing module: $FUNC_MEICA_MODULE"; exit 2; }
+      run_module "meica_optcom" env MEICA_RECLASSIFY_ENABLE=0 bash "$FUNC_MEICA_MODULE" "$Subject" "$StudyFolder" "$THREADS_MEICA" "$MEPCA" "$MaxIterations" "$MaxRestarts" "$START_SESSION" "$MEDIR"
+      [ -f "$FUNC_SINGLEECHO_MODULE" ] || { echo "ERROR: missing module: $FUNC_SINGLEECHO_MODULE"; exit 2; }
+      MODULE_DISPLAY_TAG="${MULTI_ECHO_DENOISE_METHOD}" MODULE_LOG_TAG="${MULTI_ECHO_DENOISE_METHOD}" \
+        run_module "meica" bash "$FUNC_SINGLEECHO_MODULE" "$Subject" "$StudyFolder" "$THREADS_MEICA" "$START_SESSION" "$MEDIR"
+    else
+      [ -f "$FUNC_MEICA_MODULE" ] || { echo "ERROR: missing module: $FUNC_MEICA_MODULE"; exit 2; }
+      run_module "meica" bash "$FUNC_MEICA_MODULE" "$Subject" "$StudyFolder" "$THREADS_MEICA" "$MEPCA" "$MaxIterations" "$MaxRestarts" "$START_SESSION" "$MEDIR"
+    fi
+  fi
   if [[ "$STOP_AFTER_MODULE" == "meica" ]]; then
     echo "Stopping after meica (STOP_AFTER_MODULE=meica)"
     exit 0

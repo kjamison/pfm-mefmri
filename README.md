@@ -6,6 +6,14 @@ This repository contains a modular, config-driven multi-echo fMRI preprocessing 
 
 The main pipeline config is `config/mefmri_wrapper_config.sh`.
 
+Current release notes:
+
+- `PROCESSING_MODE="auto"` switches single-echo runs into the single-echo branch automatically when the input layout only contains one echo per run.
+- `MULTI_ECHO_DENOISE_METHOD="acompcor"` will generate OCME and run aCompCor on it instead of ME-ICA.
+- In `single_echo` mode, the pipeline uses `E1` as the source image and writes `*_E1+aCompCor`.
+- In `multi_echo` mode with `acompcor`, the pipeline uses `OCME` as the source image and writes `*_OCME+aCompCor`.
+- `FUNC_NOFIELDMAP_MODE=1` enables the no-fieldmap fallback path with zero-unwarp placeholders.
+
 ## Setup
 
 Before first run on a new machine:
