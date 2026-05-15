@@ -51,6 +51,52 @@ NSI_EXTERNAL_ROOT="/full/path/to/your/pfm-nsi"
 
 So yes, users can override the bundled release version with their own newer local copy whenever they want.
 
+## PFM Strategies
+
+PFM supports two strategies through `PFM_STRATEGY`.
+
+`infomap` is the community-detection workflow previously used by our group,
+including Lynch et al. 2024 Nature. The current Python path preserves that basic
+approach, then optionally maps subject-specific Infomap communities onto
+canonical network IDs with `PFM_INFOMAP_NETWORK_MAPPING_ENABLE=1`. This mapping
+is a post-processing step: it does not force Infomap to return a fixed number of
+communities, and multiple communities may receive the same canonical network
+label. The labeler combines each community's functional similarity to the
+network priors with its spatial overlap, writes confidence maps/tables, flags
+low-confidence assignments for review, supports manual correction tables, and
+builds mode/probability consensus outputs across graph densities.
+
+`ridge_fusion` is a newer, faster PFM strategy. It estimates network assignments
+with a ridge-regularized fusion of subject functional connectivity evidence and
+spatial/network priors. The prior-guided formulation is intended to reduce the
+runtime and improve stability on difficult or lower-quality datasets while still
+allowing the subject data to drive deviations from the priors.
+For inputs without GSR/MGTR-style global signal control, set
+`PFM_RF_FC_DEMEAN=1` to demean each FC fingerprint before ridge fusion.
+
+Both strategies can optionally feed the areal parcellation step
+(`PFM_AREAL_ENABLE=1`), which sub-parcellates the network-level output into
+smaller areal parcels.
+
+Infomap uses the Python engine in `lib/pfm_infomap.py`. If `infomap` is not on
+`PATH`, set `PFM_INFOMAP_BINARY=/full/path/to/infomap`. For bring-up,
+`PFM_INFOMAP_DRY_RUN=1` validates argument wiring without running the heavy
+community-detection computation.
+
+With `PFM_INFOMAP_NETWORK_MAPPING_ENABLE=1`, the Infomap path writes:
+
+- `Bipartite_PhysicalCommunities.dtseries.nii`
+- `InfomapNetworkLabels_Density*.dlabel.nii`
+- `InfomapNetworkLabels_Density*_Confidence.dscalar.nii`
+- `InfomapNetworkLabels_Density*_CommunityTable.csv`
+- `InfomapNetworkLabels_Density*_AmbiguousCommunities.csv`
+- `InfomapNetworkLabels_ModeConsensus.dlabel.nii`
+- `InfomapNetworkLabels_ProbabilityConsensus.dscalar.nii`
+
+With areal parcellation enabled, the final areal output is named from the
+network-label prefix, for example `InfomapNetworkLabels+ArealParcellation.dlabel.nii`
+or `RidgeFusion_VTX+ArealParcellation.dlabel.nii`.
+
 ## Expected Subject Layout
 
 Before preprocessing, each subject directory should be organized as follows:

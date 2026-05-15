@@ -20,6 +20,13 @@ def zscore_rows(x: np.ndarray, eps: float = 1e-8) -> np.ndarray:
     return (x - mu) / sd
 
 
+def bool_int(value: str) -> int:
+    ivalue = int(value)
+    if ivalue not in (0, 1):
+        raise argparse.ArgumentTypeError("expected 0 or 1")
+    return ivalue
+
+
 def save_scalar_like(ref_img: nib.Cifti2Image, values: np.ndarray, out_path: Path) -> None:
     out = values.reshape(-1, 1).astype(np.float32, copy=False)
     axes = [ref_img.header.get_axis(i) for i in range(ref_img.ndim)]
@@ -104,6 +111,7 @@ def main() -> int:
     ap.add_argument("--outdir", required=True)
     ap.add_argument("--outfile", default="RidgeFusion_VTX")
     ap.add_argument("--fc-weight", type=float, default=1.0)
+    ap.add_argument("--fc-demean", type=bool_int, default=0, help="demean each target FC fingerprint after local edge exclusion")
     ap.add_argument("--spatial-weight", type=float, default=0.1)
     ap.add_argument("--lambda", dest="lam", type=float, default=10.0)
     ap.add_argument("--local-exclusion-mm", type=float, default=10.0)
@@ -177,12 +185,18 @@ def main() -> int:
         y = zscore_rows(data[g, :].astype(np.float64))
         m = (x_cort @ y.T) / max(n_time - 1, 1)  # n_cort x chunk
 
-        # Local exclusion only for cortical targets.
+        # Demean FC fingerprints after local exclusion; useful without GSR/MGTR.
         for c, gi in enumerate(g):
+            keep = np.ones((n_cort,), dtype=bool)
             pos = np.where(cortex_idx == gi)[0]
             if pos.size == 1:
-                mask = d_cort[:, pos[0]] <= args.local_exclusion_mm
-                m[mask, c] = 0.0
+                keep &= d_cort[:, pos[0]] > args.local_exclusion_mm
+            if int(args.fc_demean) == 1:
+                if keep.any():
+                    m[:, c] -= float(m[keep, c].mean())
+                else:
+                    m[:, c] = 0.0
+            m[~keep, c] = 0.0
 
         beta = (w @ m).T  # chunk x n_net
         beta_mu = beta.mean(axis=1, keepdims=True)

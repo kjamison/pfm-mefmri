@@ -150,7 +150,7 @@ NSI_RELIABILITY_MODEL=0
 # -----------------------------------------------------------------------------
 # 3g) PFM
 # -----------------------------------------------------------------------------
-PFM_STRATEGY="ridge_fusion"      # ridge_fusion | infomap
+PFM_STRATEGY="ridge_fusion"           # ridge_fusion | infomap
 PFM_PYTHON="$PIPELINE_PYTHON"
 PFM_INPUT_CIFTI=""               # empty => derive from concat outputs below
 PFM_INPUT_TAG=""                 # empty => derive from CONCAT_INPUT_TAG
@@ -158,6 +158,8 @@ PFM_CONCAT_OUT_SUBDIR="$CONCAT_OUT_SUBDIR"
 PFM_FD_THRESHOLD="$CONCAT_FD_THRESHOLD"
 PFM_DISTANCE_MATRIX=""           # empty => <SubjectDir>/anat/T1w/fsaverage_LR32k/DistanceMatrix.npy
 PFM_DISTANCE_BUILD_IF_MISSING=1
+PFM_DISTANCE_CORTEX_MODE="hybrid"      # hybrid uses geodesic surface distances, with local Euclidean fallback
+PFM_DISTANCE_EUCLIDEAN_OVERRIDE_MM=5   # hybrid only: use Euclidean distance for same-hemi cortical pairs this close
 PFM_OUTDIR=""                    # empty => <SubjectDir>/func/<FUNC_DIRNAME>/PFM
 PFM_PREP_DIR=""                  # empty => <PFM_OUTDIR>/prep
 
@@ -273,64 +275,51 @@ NSI_EXTERNAL_KEEP_FC_MAP=0
 # -----------------------------------------------------------------------------
 PFM_DISTANCE_VARIANT_CHUNK_ROWS=128
 PFM_RESOURCES_ROOT="$MEDIR/res0urces"
-PFM_INFOMAP_WRAPPER="$PFM_RESOURCES_ROOT/PFM-InfoMap-Tmp/pfm_wrapper.m"
 
 # -----------------------------------------------------------------------------
-# 4h) PFM Ridge-Fusion Details
+# 4h) PFM Ridge-Fusion
 # -----------------------------------------------------------------------------
-PFM_RF_ENABLE=1
 PFM_RF_OUTFILE="RidgeFusion_VTX"
-PFM_RF_FC_WEIGHT=1.0
-PFM_RF_SPATIAL_WEIGHT=0.2
-PFM_RF_LAMBDA=10
-PFM_RF_LOCAL_EXCLUSION_MM=10
-PFM_RF_FC_DEMEAN=0                    # important: set to 1 for ridge fusion when using data without GSR denoising
-PFM_RF_SUBCORT_REGRESS_ENABLE=1
+PFM_RF_FC_WEIGHT=1.0              # weight on subject functional connectivity evidence
+PFM_RF_FC_DEMEAN=0             # set 1 when ridge_fusion input has not had GSR/MGTR; demeans each FC fingerprint
+PFM_RF_SPATIAL_WEIGHT=0.2         # weight on spatial/network priors
+PFM_RF_LAMBDA=10                  # ridge penalty; larger values shrink estimates more strongly toward priors
+PFM_RF_LOCAL_EXCLUSION_MM=30      # excludes nearby vertices from FC fingerprints to avoid local smoothing bias
+PFM_RF_SUBCORT_REGRESS_ENABLE=1   # regress nearby cortical signal from subcortex before PFM estimation
 PFM_RF_SUBCORT_REGRESS_DISTANCE_MM=20
 PFM_RF_BRAIN_STRUCTURES_CSV="CORTEX_LEFT,CEREBELLUM_LEFT,ACCUMBENS_LEFT,CAUDATE_LEFT,PUTAMEN_LEFT,THALAMUS_LEFT,HIPPOCAMPUS_LEFT,AMYGDALA_LEFT,CORTEX_RIGHT,CEREBELLUM_RIGHT,ACCUMBENS_RIGHT,CAUDATE_RIGHT,PUTAMEN_RIGHT,THALAMUS_RIGHT,HIPPOCAMPUS_RIGHT,AMYGDALA_RIGHT"
-PFM_RF_SMOOTHING_KERNEL=1.7
+PFM_RF_SMOOTHING_KERNEL=1.7       # mm; set 0 to disable CIFTI smoothing before PFM estimation
 
-# Reserved knobs for downstream areal parcellation and prior controls
+# Optional areal parcellation of the network-level PFM output.
 PFM_AREAL_ENABLE=1
-PFM_AREAL_OUTFILE="RidgeFusion_VTX+ArealParcellation"
-PFM_AREAL_MIN_SIZE=30
-PFM_AP_METHOD="kmeans"
-PFM_AP_KMEANS_DIM_FC_ALL=64
-PFM_AP_KMAX_CAP=8
-PFM_AP_KMIN_PER_PATCH=1
-PFM_AP_K_SEARCH_HALFWIN=1
-PFM_AP_K_FIXED=0
-PFM_AP_KMEANS_REPLICATES=3
-PFM_AP_MIN_PARCEL_AREA_MM2=30
-PFM_AP_MIN_PARCEL_SIZE=30
-PFM_AP_DIFFUSE_ITERS=6
-PFM_AP_LAMBDA_SPATIAL=8
-PFM_AP_WTA_SMOOTH_ITERS=1
-PFM_AP_MIN_WTA_COMP_SIZE=20
-PFM_AP_MAX_WTA_PRUNE_PASS=2
-PFM_AP_MERGE_THRESH=0.08
-PFM_AP_FC_MIN_DISTANCE_MM=30
-PFM_AP_FC_REF_MAX=10000
-PFM_AP_FC_REF_PCA_DIM=0
-PFM_AP_REF_SEED=1
-PFM_AP_VERBOSE=1
+PFM_AREAL_OUTFILE=""              # empty => auto: <network-label-output>+ArealParcellation
+PFM_AREAL_MIN_SIZE=30             # minimum parcel size in grayordinates
 PFM_PRIORS_MAT="$PFM_NETWORK_PRIORS_CORTICAL_MAT"
 PFM_SUBCORT_PRIORS_NII="$PFM_NETWORK_PRIORS_SUBCORTICAL_NII"
 PFM_NEIGHBORS_MAT="$PFM_RESOURCES_ROOT/Cifti_surf_neighbors_LR_normalwall.mat"
 
 # -----------------------------------------------------------------------------
-# 4i) PFM Infomap Details
+# 4i) PFM Infomap
 # -----------------------------------------------------------------------------
-PFM_INFOMAP_DISTANCE_MATRIX=""          # empty => <SubjectDir>/anat/T1w/fsaverage_LR32k/DistanceMatrix.mat
-PFM_INFOMAP_GRAPH_DENSITIES_EXPR="0.001:0.001:0.009"
-PFM_INFOMAP_NUM_REPS_EXPR="20"
-PFM_INFOMAP_MIN_DISTANCE=20
-PFM_INFOMAP_BAD_VERTS_EXPR="[]"
-PFM_INFOMAP_STRUCTURES_EXPR="[]"
-PFM_INFOMAP_BAD_VERTS_CSV=""
-PFM_INFOMAP_STRUCTURES_CSV=""
+PFM_INFOMAP_DISTANCE_MATRIX=""          # empty => PFM_DISTANCE_MATRIX (.npy; auto-built when missing)
+PFM_INFOMAP_GRAPH_DENSITIES_EXPR="0.01,0.005,0.002,0.001,0.0005,0.0002,0.0001" # graph densities, from dense to sparse
+PFM_INFOMAP_NUM_REPS_EXPR="5,10,20,30,50,75,100"                              # one repeat count per density
+PFM_INFOMAP_MIN_DISTANCE=10       # mm; suppresses local edges before community detection
+PFM_INFOMAP_BAD_VERTS_CSV=""      # optional comma-separated 0-based grayordinate indices to exclude
+PFM_INFOMAP_STRUCTURES_CSV="CORTEX_LEFT,CEREBELLUM_LEFT,ACCUMBENS_LEFT,CAUDATE_LEFT,PUTAMEN_LEFT,THALAMUS_LEFT,HIPPOCAMPUS_LEFT,CORTEX_RIGHT,CEREBELLUM_RIGHT,ACCUMBENS_RIGHT,CAUDATE_RIGHT,PUTAMEN_RIGHT,THALAMUS_RIGHT,HIPPOCAMPUS_RIGHT"
 PFM_INFOMAP_NUM_CORES=1
 PFM_INFOMAP_BINARY=""                   # set explicit path if infomap is not already on PATH
-PFM_INFOMAP_USE_MATLAB=0                # 0=Python default; 1=MATLAB pfm_wrapper fallback
 PFM_INFOMAP_DRY_RUN=0                   # 1=validate arguments/wiring without running computation
-PFM_INFOMAP_NETWORK_MAPPING_ENABLE=0    # keep 0 until mapping strategy is finalized
+PFM_INFOMAP_NETWORK_MAPPING_ENABLE=1    # 1 labels communities with canonical prior network IDs
+PFM_INFOMAP_LABEL_OUTFILE="InfomapNetworkLabels"
+PFM_INFOMAP_LABEL_FC_WEIGHT=1.0         # community-to-prior functional similarity weight
+PFM_INFOMAP_LABEL_SPATIAL_WEIGHT=1.0    # community-to-prior spatial overlap weight
+PFM_INFOMAP_LABEL_CONFIDENCE_THRESHOLD=0.15 # below this margin, labels are written but flagged for review
+PFM_INFOMAP_LABEL_MIN_FC_SIMILARITY=0.33
+PFM_INFOMAP_LABEL_MIN_COMMUNITY_SIZE=10
+PFM_INFOMAP_LABEL_UNASSIGNED_VALUE=21   # label ID for communities too small or too weak to assign
+PFM_INFOMAP_LABEL_STRICT_THRESHOLDING=0  # 1 converts low-confidence communities to unassigned
+PFM_INFOMAP_LABEL_DENSITY_INDEX=-1       # -1 labels all density columns; positive values are 1-based
+PFM_INFOMAP_MANUAL_LABEL_APPLY_ENABLE=0
+PFM_INFOMAP_MANUAL_LABEL_TABLE=""        # empty => <PFM_OUTDIR>/<PFM_INFOMAP_LABEL_OUTFILE>_ManualCorrections.csv
+PFM_INFOMAP_MANUAL_LABEL_OUTFILE="InfomapNetworkLabels_ManualAdjusted"
