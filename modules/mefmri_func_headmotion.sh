@@ -231,6 +231,6 @@ func () {
 
 }
 
-export FuncDirName FuncFilePrefix AtlasSpace
+export FuncDirName FuncFilePrefix AtlasSpace FuncXfmsDir
 export -f func # correct for head motion and warp to atlas space in single spline warp
 parallel --jobs $NTHREADS func ::: $MEDIR ::: $AtlasTemplate ::: $Subdir ::: $DOF ::: $AllScans #> /dev/null 2>&1  
