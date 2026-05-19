@@ -44,13 +44,13 @@ check_anat() {
   [[ -d "$ANAT_UNPROC" ]] || { err "Missing anat raw directory: $ANAT_UNPROC"; return; }
   [[ -d "$t1_dir" ]] || { err "Missing T1w directory: $t1_dir"; return; }
 
-  t1_count=$(find "$t1_dir" -maxdepth 1 -type f -name 'T1w*.nii.gz' | wc -l | tr -d ' ')
+  t1_count=$(find "$t1_dir" -maxdepth 1 -name 'T1w*.nii.gz' | wc -l | tr -d ' ')
   if [[ "$t1_count" -lt 1 ]]; then
     err "No T1w*.nii.gz files found in $t1_dir"
   fi
 
   if [[ -d "$t2_dir" ]]; then
-    t2_count=$(find "$t2_dir" -maxdepth 1 -type f -name 'T2w*.nii.gz' | wc -l | tr -d ' ')
+    t2_count=$(find "$t2_dir" -maxdepth 1 -name 'T2w*.nii.gz' | wc -l | tr -d ' ')
     if [[ "$t2_count" -lt 1 ]]; then
       warn "T2w directory exists but no T2w*.nii.gz found: $t2_dir (pipeline can run in legacy mode)"
     fi
@@ -92,13 +92,13 @@ validate_run_payload() {
   local nf jf echo_tag
   local -a echo_sizes=() echo_names=() echo_vols=()
 
-  mapfile -t nii_files < <(find "$run_dir" -maxdepth 1 -type f -name "${FuncFilePrefix}_S*_R*_E*.nii.gz" | sort -V)
+  mapfile -t nii_files < <(find "$run_dir" -maxdepth 1 -name "${FuncFilePrefix}_S*_R*_E*.nii.gz" | sort -V)
   if [[ "${#nii_files[@]}" -eq 0 ]]; then
     err "No echo NIfTI files found in $run_dir (expected ${expected_prefix}*.nii.gz)"
     return
   fi
 
-  mapfile -t json_files < <(find "$run_dir" -maxdepth 1 -type f -name "${FuncFilePrefix}_S*_R*_E*.json" | sort -V)
+  mapfile -t json_files < <(find "$run_dir" -maxdepth 1 -name "${FuncFilePrefix}_S*_R*_E*.json" | sort -V)
   if [[ "${#json_files[@]}" -eq 0 ]]; then
     err "No echo JSON sidecars found in $run_dir (expected ${expected_prefix}*.json)"
   fi
@@ -257,8 +257,8 @@ check_fieldmaps() {
 
   [[ -d "$FM_UNPROC" ]] || { err "Missing fieldmap raw directory: $FM_UNPROC"; return; }
 
-  mapfile -t ap_files < <(find "$FM_UNPROC" -maxdepth 1 -type f -name 'AP_S*_R*.nii.gz' | sort -V)
-  mapfile -t pa_files < <(find "$FM_UNPROC" -maxdepth 1 -type f -name 'PA_S*_R*.nii.gz' | sort -V)
+  mapfile -t ap_files < <(find "$FM_UNPROC" -maxdepth 1 -name 'AP_S*_R*.nii.gz' | sort -V)
+  mapfile -t pa_files < <(find "$FM_UNPROC" -maxdepth 1 -name 'PA_S*_R*.nii.gz' | sort -V)
 
   [[ "${#ap_files[@]}" -gt 0 ]] || err "No AP fieldmap NIfTI files found in $FM_UNPROC"
   [[ "${#pa_files[@]}" -gt 0 ]] || err "No PA fieldmap NIfTI files found in $FM_UNPROC"
