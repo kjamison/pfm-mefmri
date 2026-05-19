@@ -1,0 +1,13 @@
+name: mefmri_env
+channels:
+  - defaults
+dependencies:
+  - python=3.10.19
+  - pip
+  - pip:
+      - tedana==26.0.0
+      - numpy==1.26.4
+      - nibabel==5.3.3
+      - pandas==2.3.3
+      - scipy==1.15.3
+      - matplotlib==3.10.8
