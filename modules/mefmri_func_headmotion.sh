@@ -88,6 +88,12 @@ func () {
 	IntermediateCoregTarget=$(cat "$ProcDir"/IntermediateCoregTarget.txt)
 	Intermediate2ACPCWarp=$(cat "$ProcDir"/Intermediate2ACPCWarp.txt)
 
+	tmpext=${MEFMRI_TEMPFILE_NIIEXT:-}
+	ORIG_FSLOUTPUTTYPE=${FSLOUTPUTTYPE}
+	if [ ${tmpext} = "nii" ]; then
+		export FSLOUTPUTTYPE=NIFTI
+	fi
+
 	# Iterate over echoes.
 	for i in $te ; do
 
@@ -109,57 +115,57 @@ func () {
 	for i in $(seq -f "%04g" 0 $((`fslnvols "$UnprocDir"/"$FuncFilePrefix"*_E1.nii.gz` - 1))) ; do
 
 	  	# combine te;
-	  	fslmerge -t "$ProcDir"/vols/AVG_"$i".nii.gz "$ProcDir"/vols/E*_"$i".nii.gz
-		fslmaths "$ProcDir"/vols/AVG_"$i".nii.gz -Tmean "$ProcDir"/vols/AVG_"$i".nii.gz
+	  	fslmerge -t "$ProcDir"/vols/AVG_"$i".${tmpext} "$ProcDir"/vols/E*_"$i".${tmpext}
+		fslmaths "$ProcDir"/vols/AVG_"$i".${tmpext} -Tmean "$ProcDir"/vols/AVG_"$i".${tmpext}
 
 	done
 
 	# merge the images;
-	fslmerge -t "$ProcDir"/Rest_AVG.nii.gz "$ProcDir"/vols/AVG_*.nii.gz # note: used for estimating head motion;
-	fslmerge -t "$ProcDir"/Rest_E1.nii.gz "$ProcDir"/vols/E1_*.nii.gz # note: used for estimating (very rough)bias field;
+	fslmerge -t "$ProcDir"/Rest_AVG.${tmpext} "$ProcDir"/vols/AVG_*.${tmpext} # note: used for estimating head motion;
+	fslmerge -t "$ProcDir"/Rest_E1.${tmpext} "$ProcDir"/vols/E1_*.${tmpext} # note: used for estimating (very rough)bias field;
 	rm -rf "$ProcDir"/vols/ # remove temporary directory
 
 	# Use the first echo to estimate the bias field.
-	fslmaths "$ProcDir"/Rest_E1.nii.gz -Tmean "$ProcDir"/Mean.nii.gz
+	fslmaths "$ProcDir"/Rest_E1.${tmpext} -Tmean "$ProcDir"/Mean.${tmpext}
 	if [[ "$ApplyN4Bias" -eq 1 ]]; then
-		N4BiasFieldCorrection -d 3 -i "$ProcDir"/Mean.nii.gz -o ["$ProcDir"/Mean_Restored.nii.gz,"$ProcDir"/Bias_field.nii.gz] # estimate field inhomogeneity
+		N4BiasFieldCorrection -d 3 -i "$ProcDir"/Mean.${tmpext} -o ["$ProcDir"/Mean_Restored.${tmpext},"$ProcDir"/Bias_field.${tmpext}] # estimate field inhomogeneity
 	fi
-	rm "$ProcDir"/Rest_E1.nii.gz # remove helper file
+	rm "$ProcDir"/Rest_E1.${tmpext} # remove helper file
 
 	if [[ "$ApplyN4Bias" -eq 1 ]]; then
 		# resample bias field image (ANTs --> FSL orientation);
-		flirt -in "$ProcDir"/Bias_field.nii.gz -ref "$ProcDir"/Mean.nii.gz -applyxfm \
-		-init "$1"/res0urces/ident.mat -out "$ProcDir"/Bias_field.nii.gz -interp spline
+		flirt -in "$ProcDir"/Bias_field.${tmpext} -ref "$ProcDir"/Mean.${tmpext} -applyxfm \
+		-init "$1"/res0urces/ident.mat -out "$ProcDir"/Bias_field.${tmpext} -interp spline
 
 		# remove signal bias;
-		fslmaths "$ProcDir"/Rest_AVG.nii.gz \
-		-div "$ProcDir"/Bias_field.nii.gz \
-		"$ProcDir"/Rest_AVG.nii.gz
+		fslmaths "$ProcDir"/Rest_AVG.${tmpext} \
+		-div "$ProcDir"/Bias_field.${tmpext} \
+		"$ProcDir"/Rest_AVG.${tmpext}
 	fi
 
 	# Remove helper files.
-	rm -f "$ProcDir"/Mean*.nii.gz
-	rm -f "$ProcDir"/Bias*.nii.gz
+	rm -f "$ProcDir"/Mean*.${tmpext}
+	rm -f "$ProcDir"/Bias*.${tmpext}
 
 	# remove the first few volumes if needed;
 	if [[ -f "$ProcDir"/rmVols.txt ]]; then
     	nVols=`fslnvols "$ProcDir"/Rest_AVG.nii.gz`
     	rmVols=$(cat "$ProcDir"/rmVols.txt)
-		fslroi "$ProcDir"/Rest_AVG.nii.gz "$ProcDir"/Rest_AVG.nii.gz "$rmVols" `expr $nVols - $rmVols`
+		fslroi "$ProcDir"/Rest_AVG.${tmpext} "$ProcDir"/Rest_AVG.${tmpext} "$rmVols" `expr $nVols - $rmVols`
  	fi
 
 	# Run an initial MCFLIRT pass to estimate motion before slice-time correction.
-	mcflirt -dof "$4" -stages 3 -plots -in "$ProcDir"/Rest_AVG.nii.gz -r "$ProcDir"/SBref.nii.gz -out "$ProcDir"/MCF
-	rm "$ProcDir"/MCF.nii.gz # remove .nii output; not used moving forward
+	mcflirt -dof "$4" -stages 3 -plots -in "$ProcDir"/Rest_AVG.${tmpext} -r "$ProcDir"/SBref.${tmpext} -out "$ProcDir"/MCF
+	rm "$ProcDir"/MCF.${tmpext} # remove .nii output; not used moving forward
 
 	# perform slice time correction; using custom timing file;
-	slicetimer -i "$ProcDir"/Rest_AVG.nii.gz \
-	-o "$ProcDir"/Rest_AVG.nii.gz -r $tr \
+	slicetimer -i "$ProcDir"/Rest_AVG.${tmpext} \
+	-o "$ProcDir"/Rest_AVG.${tmpext} -r $tr \
 	--tcustom="$ProcDir"/SliceTiming.txt
 
 	# now run another MCFLIRT; specify average sbref as ref. vol & output transformation matrices;
-	mcflirt -dof "$4" -mats -stages 3 -in "$ProcDir"/Rest_AVG.nii.gz -r "$IntermediateCoregTarget" -out "$ProcDir"/Rest_AVG_mcf
-	rm "$ProcDir"/Rest_AVG*.nii.gz # delete intermediate images; not needed moving forward;
+	mcflirt -dof "$4" -mats -stages 3 -in "$ProcDir"/Rest_AVG.${tmpext} -r "$IntermediateCoregTarget" -out "$ProcDir"/Rest_AVG_mcf
+	rm "$ProcDir"/Rest_AVG*.${tmpext} # delete intermediate images; not needed moving forward;
 
 	# sweep all of the echoes; 
 	for e in $(seq 1 1 "$n_te") ; do
@@ -168,24 +174,28 @@ func () {
 		cp "$UnprocDir"/"$FuncFilePrefix"*_E"$e".nii.gz \
 		"$ProcDir"/"$FuncFilePrefix"_E"$e".nii.gz
 
+		if [ ${tmpext} = "nii" ]; then
+			gunzip "$ProcDir"/"$FuncFilePrefix"_E"$e".nii.gz
+		fi
+
 		# remove the first few volumes if needed;
 		if [[ -f "$ProcDir"/rmVols.txt ]]; then
-			fslroi "$ProcDir"/"$FuncFilePrefix"_E"$e".nii.gz "$ProcDir"/"$FuncFilePrefix"_E"$e".nii.gz \
+			fslroi "$ProcDir"/"$FuncFilePrefix"_E"$e".${tmpext} "$ProcDir"/"$FuncFilePrefix"_E"$e".${tmpext} \
 			"$rmVols" `expr $nVols - $rmVols`
 	 	fi
 
 		# perform slice time correction using custom timing file;
-		slicetimer -i "$ProcDir"/"$FuncFilePrefix"_E"$e".nii.gz \
+		slicetimer -i "$ProcDir"/"$FuncFilePrefix"_E"$e".${tmpext} \
 		--tcustom="$ProcDir"/SliceTiming.txt \
-		-r $tr -o "$ProcDir"/"$FuncFilePrefix"_E"$e".nii.gz
+		-r $tr -o "$ProcDir"/"$FuncFilePrefix"_E"$e".${tmpext}
 
 		# split original data into individual volumes;
-		fslsplit "$ProcDir"/"$FuncFilePrefix"_E"$e".nii.gz \
+		fslsplit "$ProcDir"/"$FuncFilePrefix"_E"$e".${tmpext} \
 		"$ProcDir"/Rest_AVG_mcf.mat/vol_ -t
 
 		# define affine transformation matrices and associated target images.
 		mats=("$ProcDir"/Rest_AVG_mcf.mat/MAT_*)
-	    images=("$ProcDir"/Rest_AVG_mcf.mat/vol_*.nii.gz)
+	    images=("$ProcDir"/Rest_AVG_mcf.mat/vol_*.${tmpext})
 		if [[ ${#images[@]} -ne ${#mats[@]} ]]; then
 			echo "[ERROR] headmotion applywarp pairing mismatch for $5 echo $e: images=${#images[@]} mats=${#mats[@]}" 1>&2
 			return 1
@@ -198,13 +208,13 @@ func () {
 		done
 
 		# merge corrected images into a single file & perform a brain extraction
-		fslmerge -t "$ProcDir"/"$FuncFilePrefix"_E"$e"_acpc.nii.gz "$ProcDir"/Rest_AVG_mcf.mat/*.nii.gz
-		fslmaths "$ProcDir"/"$FuncFilePrefix"_E"$e"_acpc.nii.gz -mas "$BrainMask" \
-		"$ProcDir"/"$FuncFilePrefix"_E"$e"_acpc.nii.gz # note: this step reduces file size, which is generally desirable but not absolutely needed.
-
+		fslmerge -t "$ProcDir"/"$FuncFilePrefix"_E"$e"_acpc.${tmpext} "$ProcDir"/Rest_AVG_mcf.mat/*.${tmpext}
+		fslmaths "$ProcDir"/"$FuncFilePrefix"_E"$e"_acpc.${tmpext} -mas "$BrainMask" \
+		"$ProcDir"/"$FuncFilePrefix"_E"$e"_acpc.${tmpext} # note: this step reduces file size, which is generally desirable but not absolutely needed.
+        
 		# Remove helper files.
-		rm "$ProcDir"/Rest_AVG_mcf.mat/*.nii.gz # split volumes
-		rm "$ProcDir"/"$FuncFilePrefix"_E"$e".nii.gz # temporary copy of run data
+		rm "$ProcDir"/Rest_AVG_mcf.mat/*.${tmpext} # split volumes
+		rm "$ProcDir"/"$FuncFilePrefix"_E"$e".${tmpext} # temporary copy of run data
 
 	done
 
@@ -214,29 +224,36 @@ func () {
 
 	if [[ "$ApplyN4Bias" -eq 1 ]]; then
 		# Use the first echo to estimate the bias field.
-		fslmaths "$ProcDir"/"$FuncFilePrefix"_E1_acpc.nii.gz -Tmean "$ProcDir"/Mean.nii.gz
-		fslmaths "$ProcDir"/Mean.nii.gz -thr 0 "$ProcDir"/Mean.nii.gz # remove any negative values introduced by spline interpolation;
-		N4BiasFieldCorrection -d 3 -i "$ProcDir"/Mean.nii.gz -o ["$ProcDir"/Mean_Restored.nii.gz,"$ProcDir"/Bias_field.nii.gz] # estimate field inhomogeneity
-		flirt -in "$ProcDir"/Bias_field.nii.gz -ref "$ProcDir"/Mean.nii.gz -applyxfm -init "$1"/res0urces/ident.mat -out "$ProcDir"/Bias_field.nii.gz -interp spline # resample bias field image (ANTs --> FSL orientation);
+		fslmaths "$ProcDir"/"$FuncFilePrefix"_E1_acpc.${tmpext} -Tmean "$ProcDir"/Mean.${tmpext}
+		fslmaths "$ProcDir"/Mean.${tmpext} -thr 0 "$ProcDir"/Mean.${tmpext} # remove any negative values introduced by spline interpolation;
+		N4BiasFieldCorrection -d 3 -i "$ProcDir"/Mean.${tmpext} -o ["$ProcDir"/Mean_Restored.${tmpext},"$ProcDir"/Bias_field.${tmpext}] # estimate field inhomogeneity
+		flirt -in "$ProcDir"/Bias_field.${tmpext} -ref "$ProcDir"/Mean.${tmpext} -applyxfm -init "$1"/res0urces/ident.mat -out "$ProcDir"/Bias_field.${tmpext} -interp spline # resample bias field image (ANTs --> FSL orientation);
 
 		# sweep all of the echoes;
 		for e in $(seq 1 1 "$n_te") ; do
 
 			# Correct signal inhomogeneity.
-			fslmaths "$ProcDir"/"$FuncFilePrefix"_E"$e"_acpc.nii.gz \
-			-div "$ProcDir"/Bias_field.nii.gz \
-			"$ProcDir"/"$FuncFilePrefix"_E"$e"_acpc.nii.gz
+			fslmaths "$ProcDir"/"$FuncFilePrefix"_E"$e"_acpc.${tmpext} \
+			-div "$ProcDir"/Bias_field.${tmpext} \
+			"$ProcDir"/"$FuncFilePrefix"_E"$e"_acpc.${tmpext}
 
 		done
 	fi
 
 	# Remove helper files.
-	rm -f "$ProcDir"/Mean*.nii.gz
-	rm -f "$ProcDir"/Bias*.nii.gz
+	rm -f "$ProcDir"/Mean*.${tmpext}
+	rm -f "$ProcDir"/Bias*.${tmpext}
 
 	# optional cleanup of motion transform workspace to avoid rerun clutter.
 	if [[ "$KeepMCF" -eq 0 ]]; then
 		rm -rf "$ProcDir"/MCF "$ProcDir"/Rest_AVG_mcf.mat "$ProcDir"/Rest_AVG_mcf.mat+
+	fi
+
+	if [ ${tmpext} = "nii" ]; then
+		export FSLOUTPUTTYPE="${ORIG_FSLOUTPUTTYPE}"
+		for e in $(seq 1 1 "$n_te") ; do
+			gzip "$ProcDir"/"$FuncFilePrefix"_E"$e"_acpc.nii
+		done
 	fi
 
 	if [ -n "${FinalProcDir}" ]; then
