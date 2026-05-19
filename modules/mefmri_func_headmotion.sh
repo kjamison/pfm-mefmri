@@ -64,6 +64,16 @@ func () {
 		BrainMask="$3/func/xfms/$FuncXfmsDir/T1w_func_brain_mask.nii.gz"
 	fi
 
+	FinalProcDir=
+	if [ -n "${MEFMRI_SCRATCH_ROOT:-}" ] && [ -e "${MEFMRI_SCRATCH_ROOT}" ]; then
+		#if an environment variable MEFMRI_SCRATCH_ROOT is set, use that for 
+		#(e.g. working directory (might be a local scratch location on a cluster to avoid network share traffic)
+		FinalProcDir="${ProcDir}"
+		ProcDir="${MEFMRI_SCRATCH_ROOT}/work/$3/func/$FuncDirName/$5"
+		mkdir -p "${ProcDir}"
+		rsync -av "${FinalProcDir}/" "${ProcDir}/"
+	fi
+
 	# Clean up motion-correction workspace from prior runs.
 	rm -rf "$ProcDir"/MCF #> /dev/null 2>&1
 	rm -rf "$ProcDir"/Rest_AVG_mcf.mat "$ProcDir"/Rest_AVG_mcf.mat+ # remove stale split/mat dirs from prior runs
@@ -229,6 +239,14 @@ func () {
 		rm -rf "$ProcDir"/MCF "$ProcDir"/Rest_AVG_mcf.mat "$ProcDir"/Rest_AVG_mcf.mat+
 	fi
 
+	if [ -n "${FinalProcDir}" ]; then
+		for e in $(seq 1 1 "$n_te") ; do
+			rsync -av "$ProcDir"/"$FuncFilePrefix"_E"$e"_acpc.nii.gz "$FinalProcDir"/
+		done
+		for f in "MCF.par" "MCF" "Rest_AVG_mcf.mat" "Rest_AVG_mcf.mat+"; do
+			[[ -e "$ProcDir"/$f ]] && echo rsync -av "$ProcDir"/$f "$FinalProcDir"/
+		done
+	fi
 }
 
 export FuncDirName FuncFilePrefix AtlasSpace FuncXfmsDir
