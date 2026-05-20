@@ -18,7 +18,7 @@ tar --exclude "*/${LOCAL_REPO_COPY}" --exclude "./.git" -C ../ -cf - . | tar -C 
 
 #modify local copy to point to charm install location inside container
 NEW_CHARM_DIR="/opt/SimNIBS-4.5"
-sed -i -E 's#^CHARM_BIN=.+$#CHARM_BIN="${NEW_CHARM_DIR}/bin/charm"#' ${LOCAL_REPO_COPY}/pfm-mefmri/config/mefmri_wrapper_config.sh
+sed -i -E 's#^CHARM_BIN=.+$#CHARM_BIN="'${NEW_CHARM_DIR}'/bin/charm"#' ${LOCAL_REPO_COPY}/pfm-mefmri/config/mefmri_wrapper_config.sh
 
 #needed for wb_command: libglib2.0-0 needed for wb_command
 #needed for msm: libexpat1 zlib1g libopenblas0 libstdc++6 libgfortran5 libquadmath0
