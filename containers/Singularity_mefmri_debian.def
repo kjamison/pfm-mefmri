@@ -4,8 +4,8 @@ Bootstrap: docker
 From: debian:bookworm
 
 %files
-/home/kwj2001/cocolab_scratch/neurodocker/environment-mefmri.yml /
-pfm-mefmri /
+../environment-mefmri.yml /
+../ /pfm-mefmri/
 
 %environment
 export LANG="en_US.UTF-8"
